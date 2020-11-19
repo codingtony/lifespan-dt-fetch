@@ -3,6 +3,14 @@ Go program to get values from LifeSpan DT walking desk threadmill using Bluetoot
 
 
 
+## Install
+
+```
+go install github.com/codingtony/lifespan-dt-fetch
+```
+
+
+
 ## Build
 
 ```bash
@@ -16,7 +24,7 @@ go build
 Requires `sudo` to access `hci0`
 
 ```
-sudo ./lifespan-dt-fetch 
+sudo lifespan-dt-fetch 
 Scanning for 30s...
 Distance: 0.43 [ A1 AA 00 2B 00 00 ]
 Calories: 40 [ A1 AA 00 28 00 00 ]
