@@ -33,7 +33,7 @@ var black = color.New(color.FgHiBlack).SprintfFunc()
 // some part of this program is inspired from examples provided as part of go-ble/ble
 func main() {
 	flag.Parse()
-
+	fmt.Println("Initializing Bluetooth")
 	d, err := dev.NewDevice("default")
 	if err != nil {
 		log.Fatalf("can't new device : %s", err)
@@ -70,26 +70,30 @@ func main() {
 	}()
 
 	notif := make(chan bool)
+	durationChan := make(chan time.Duration, 1)
+	caloriesChan := make(chan int, 1)
+	distanceChan := make(chan float64, 1)
+	stepChan := make(chan int, 1)
 
-	err = cln.Subscribe(characteristic052, false, distanceHandle(notif))
+	err = cln.Subscribe(characteristic052, false, distanceHandle(notif, distanceChan))
 	if err != nil {
 		log.Fatalf("can't subscribe : %s", err)
 	}
 	write(cln, "a185000000", notif) // Distance
 
-	err = cln.Subscribe(characteristic052, false, caloriesHandle(notif))
+	err = cln.Subscribe(characteristic052, false, caloriesHandle(notif, caloriesChan))
 	if err != nil {
 		log.Fatalf("can't subscribe : %s", err)
 	}
 	write(cln, "a187000000", notif) // Calories
 
-	err = cln.Subscribe(characteristic052, false, stepHandle(notif))
+	err = cln.Subscribe(characteristic052, false, stepHandle(notif, stepChan))
 	if err != nil {
 		log.Fatalf("can't subscribe : %s", err)
 	}
 	write(cln, "a188000000", notif) // Steps
 
-	err = cln.Subscribe(characteristic052, false, timeHandle(notif))
+	err = cln.Subscribe(characteristic052, false, timeHandle(notif, durationChan))
 	if err != nil {
 		log.Fatalf("can't subscribe : %s", err)
 	}
@@ -100,6 +104,13 @@ func main() {
 		log.Fatalf("can't subscribe : %s", err)
 	}
 	write(cln, "a182000000", notif) // Speed
+
+	distance := <-distanceChan
+	calories := <-caloriesChan
+	duration := <-durationChan
+	steps := <-stepChan
+	//fmt.Println(t.Format("2006-01-02 15:04:05"))
+	fmt.Printf("%s distance : %.2f, calories: %d, duration : %s, steps : %d\n", time.Now().UTC().Format("2006-01-02T15:04:05Z"), distance, calories, duration, steps)
 
 	// debug(cln, "0200000000", notif)
 	// debug(cln, "0400000000", notif)
@@ -143,7 +154,7 @@ func main() {
 
 // Great help for hex conversion : https://www.scadacore.com/tools/programming-calculators/online-hex-converter/
 
-func caloriesHandle(notif chan (bool)) func([]byte) {
+func caloriesHandle(notif chan (bool), caloriesChan chan (int)) func([]byte) {
 	//A1 AA 00 AC 00 00 : 172
 	return func(req []byte) {
 		buffer := bytes.NewReader(req[2:])
@@ -151,11 +162,12 @@ func caloriesHandle(notif chan (bool)) func([]byte) {
 		binary.Read(buffer, binary.BigEndian, &val)
 
 		fmt.Printf("%s %s %s\n", lightWhite("Calories:"), yellow("%d", val), black("[ % X ]", req))
+		caloriesChan <- int(val)
 		notif <- true
 	}
 }
 
-func distanceHandle(notif chan (bool)) func([]byte) {
+func distanceHandle(notif chan (bool), distanceChan chan float64) func([]byte) {
 	return func(req []byte) {
 		buffer := bytes.NewReader(req[2:3])
 		var km uint8
@@ -166,6 +178,8 @@ func distanceHandle(notif chan (bool)) func([]byte) {
 		binary.Read(buffer, binary.BigEndian, &decimal)
 
 		fmt.Printf("%s %s %s\n", lightWhite("Distance:"), yellow("%d.%d", km, decimal), black("[ % X ]", req))
+		distance := float64(km) + float64(decimal)/100.0
+		distanceChan <- distance
 		notif <- true
 	}
 }
@@ -185,7 +199,7 @@ func speedHandle(notif chan (bool)) func([]byte) {
 	}
 }
 
-func stepHandle(notif chan (bool)) func([]byte) {
+func stepHandle(notif chan (bool), stepChan chan (int)) func([]byte) {
 	//  A1 AA 01 B5 00 00  -> ~436 steps
 	//  A1 AA 01 D9 00 00  -> ~475 steps
 	//  A1 AA 01 FF 00 00  -> ~512 steps
@@ -196,11 +210,12 @@ func stepHandle(notif chan (bool)) func([]byte) {
 		binary.Read(buffer, binary.BigEndian, &val)
 
 		fmt.Printf("%s %s %s\n", lightWhite("Steps:   "), yellow("%d", val), black("[ % X ]", req))
+		stepChan <- int(val)
 		notif <- true
 	}
 }
 
-func timeHandle(notif chan (bool)) func([]byte) {
+func timeHandle(notif chan (bool), durationChan chan (time.Duration)) func([]byte) {
 	// A1 AA 01 FF 00 00  (9:45, 633s 24 cal, 0.28k)
 	// A1 AA 00 0A 00 00 (10:00, 654s, 25 cal, 0.30k)
 	// A1 AA 00 0B 00 00 (11:00, 758s, 29 cal, 0.37k)
@@ -225,6 +240,8 @@ func timeHandle(notif chan (bool)) func([]byte) {
 		binary.Read(buffer, binary.LittleEndian, &sec)
 
 		fmt.Printf("%s %s %s\n", lightWhite("Time:    "), yellow("%d:%02d:%02d", hour, min, sec), black("[ % X ]", req))
+		t := time.Duration(hour)*time.Hour + time.Duration(min)*time.Minute + time.Duration(sec)*time.Second
+		durationChan <- t
 		notif <- true
 	}
 }
