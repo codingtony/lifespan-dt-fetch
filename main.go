@@ -7,10 +7,12 @@ import (
 	"encoding/hex"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"strings"
 	"time"
 
+	"github.com/codingtony/tcx"
 	"github.com/fatih/color"
 	"github.com/go-ble/ble"
 	"github.com/go-ble/ble/examples/lib/dev"
@@ -33,7 +35,7 @@ var black = color.New(color.FgHiBlack).SprintfFunc()
 // some part of this program is inspired from examples provided as part of go-ble/ble
 func main() {
 	flag.Parse()
-	fmt.Println("Initializing Bluetooth")
+	fmt.Println(black("Initializing Bluetooth"))
 	d, err := dev.NewDevice("default")
 	if err != nil {
 		log.Fatalf("can't new device : %s", err)
@@ -53,7 +55,7 @@ func main() {
 	}
 
 	// Scan for specified durantion, or until interrupted by user.
-	fmt.Printf("Scanning for %s...\n", *sd)
+	fmt.Printf(black("Scanning for %s...\n", *sd))
 	ctx := ble.WithSigHandler(context.WithTimeout(context.Background(), *sd))
 	cln, err := ble.Connect(ctx, filter)
 	if err != nil {
@@ -65,7 +67,7 @@ func main() {
 
 	go func() {
 		<-cln.Disconnected()
-		fmt.Printf("[ %s ] is disconnected \n", cln.Addr())
+		fmt.Printf(black("[ %s ] is disconnected \n", cln.Addr()))
 		close(done)
 	}()
 
@@ -109,8 +111,33 @@ func main() {
 	calories := <-caloriesChan
 	duration := <-durationChan
 	steps := <-stepChan
-	//fmt.Println(t.Format("2006-01-02 15:04:05"))
-	fmt.Printf("%s distance : %.2f, calories: %d, duration : %s, steps : %d\n", time.Now().UTC().Format("2006-01-02T15:04:05Z"), distance, calories, duration, steps)
+	now := time.Now().UTC()
+	start := now.Add(-duration)
+	var activities = []tcx.Activity{
+		{Sport: "Other",
+			Id: start,
+			Laps: []tcx.Lap{
+				{
+					Start:     start.Format("2006-01-02T15:04:05Z"),
+					Calories:  float64(calories),
+					Dist:      distance * 1000,
+					TotalTime: duration.Seconds(),
+				},
+			},
+			Notes: fmt.Sprintf("Walking. Number of steps : %d", steps),
+		},
+	}
+	act := &tcx.TCXDB{Acts: &tcx.Activities{Act: activities}}
+	tcxData, err := tcx.ToBytes(*act)
+	if err != nil {
+		panic("Unable to create tcx")
+	}
+	filename := fmt.Sprintf("./lifespan_%s_%s_%dsteps.tcx", now.Format("20060102T150405Z"), duration, steps)
+	err = ioutil.WriteFile(filename, tcxData, 0666)
+	if err != nil {
+		panic(fmt.Errorf("Unable to create tcx : %s, %v", filename, err))
+	}
+	fmt.Printf(white("Activity saved to : %s\n", yellow(filename)))
 
 	// debug(cln, "0200000000", notif)
 	// debug(cln, "0400000000", notif)
@@ -147,7 +174,7 @@ func main() {
 	// write(cln, "e200000000") /// <-- this reset the threadmill
 
 	// Disconnect the connection. (On OS X, this might take a while.)
-	fmt.Printf("Disconnecting [ %s ]... (this might take up to few seconds on OS X)\n", cln.Addr())
+	fmt.Printf(black("Disconnecting [ %s ]... (this might take up to few seconds on OS X)\n", cln.Addr()))
 	cln.CancelConnection()
 	<-done
 }
